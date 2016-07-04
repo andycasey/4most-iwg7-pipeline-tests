@@ -9,7 +9,7 @@ from matplotlib.ticker import MaxNLocator
 
 def plot_label_precision(optimized_labels, label_names, reference_labels,
     latex_labels=None, legend_labels=None, colors="rk", star_column="star", 
-    snr_column="snr", fig=None, **kwargs):
+    snr_column="snr", fig=None, angstroms_per_pixel=1.0, **kwargs):
     """
     Plot the precision in labels as a function of S/N.
 
@@ -34,6 +34,10 @@ def plot_label_precision(optimized_labels, label_names, reference_labels,
         An optional `matplotlib` figure that has at least as many axes as the
         number of `label_names`.
 
+    :param angstroms_per_pixel: [optional]
+        The number of Angstroms per pixel so that S/N can be calculated on a per
+        Angstrom basis.
+
     :returns:
         A figure showing the precision as a function of S/N for each label.
     """
@@ -42,7 +46,22 @@ def plot_label_precision(optimized_labels, label_names, reference_labels,
         latex_labels = {
             "Teff": r"$T_{\rm eff}$",
             "logg": r"$\log{g}$",
-            "[Fe/H]": r"$[{\rm Fe}/{\rm H}]$"
+            "[Fe/H]": r"$[{\rm Fe}/{\rm H}]$",
+            "[C/H]": r"$[{\rm C}/{\rm H}]$",
+            "[N/H]": r"$[{\rm N}/{\rm H}]$",
+            "[O/H]": r"$[{\rm O}/{\rm H}]$",
+            "[Na/H]": r"$[{\rm Na}/{\rm H}]$",
+            "[Mg/H]": r"$[{\rm Mg}/{\rm H}]$",
+            "[Al/H]": r"$[{\rm Al}/{\rm H}]$",
+            "[Si/H]": r"$[{\rm Si}/{\rm H}]$",
+            "[Ca/H]": r"$[{\rm Ca}/{\rm H}]$",
+            "[Ti/H]": r"$[{\rm Ti}/{\rm H}]$",
+            "[Mn/H]": r"$[{\rm Mn}/{\rm H}]$",
+            "[Co/H]": r"$[{\rm Co}/{\rm H}]$",
+            "[Ni/H]": r"$[{\rm Ni}/{\rm H}]$",
+            "[Ba/H]": r"$[{\rm Ba}/{\rm H}]$",
+            "[Sr/H]": r"$[{\rm Sr}/{\rm H}]$"
+
         }
         latex_labels = [latex_labels.get(ln, ln) for ln in label_names]
 
@@ -83,7 +102,9 @@ def plot_label_precision(optimized_labels, label_names, reference_labels,
     metric = kwargs.pop("metric", np.std)
 
     if fig is None:
-        M = N if N < 4 else (int(np.ceil(N**0.5)), int(np.ceil(N**0.5)))
+        M = kwargs.pop("M", None)
+        if M is None:
+            M = N if N < 4 else (int(np.ceil(N**0.5)), int(np.ceil(N**0.5)))
         fig, _ = plt.subplots(M)
 
     for i, (ax, label_name, latex_label) \
@@ -98,15 +119,15 @@ def plot_label_precision(optimized_labels, label_names, reference_labels,
                 diffs = label_diff[xk][label_name][j]
                 y[k] = metric(diffs)
                 
-            ax.plot(snr_values, y, c=color, label=legend_label)
-            ax.scatter(snr_values, y, s=100, facecolor=color, zorder=10,
-                alpha=0.75, label=None)
-
+            ax.plot(snr_values * angstroms_per_pixel, y,
+                c=color, label=legend_label)
+            ax.scatter(snr_values * angstroms_per_pixel, y, 
+                s=100, facecolor=color, zorder=10, alpha=0.75, label=None)
 
         ax.set_ylabel(latex_label)
 
         if ax.is_last_row():
-            ax.set_xlabel(r"$S/N$")
+            ax.set_xlabel(r"$S/N$ $[\\A^{-1}]$")
         else:
             ax.set_xticklabels([])
 
@@ -123,8 +144,17 @@ def plot_label_precision(optimized_labels, label_names, reference_labels,
     
     return fig
 
+
+
 if __name__ == "__main__":
 
+    import cPickle as pickle
+
+    with open("lrs_training_disp.pkl", "rb") as fp:
+        lrs_disp = pickle.load(fp)
+
+    with open("hrs_training_disp.pkl", "rb") as fp:
+        hrs_disp = pickle.load(fp)
 
 
     expected = Table.read("testset_param.tab", format="ascii")
@@ -134,14 +164,19 @@ if __name__ == "__main__":
     lrs_results = Table.read("lrs_results.fits")
     hrs_results = Table.read("hrs_results.fits")
     
+    label_names = ("Teff", "logg", "[Fe/H]", 
+        "[C/H]", "[N/H]", "[O/H]", "[Na/H]", "[Mg/H]", "[Al/H]", "[Si/H]",
+        "[Ca/H]", "[Ti/H]", "[Mn/H]", "[Co/H]", "[Ni/H]", "[Ba/H]", "[Sr/H]")
     
-    fig = plot_label_precision(hrs_results, ("Teff", "logg", "[Fe/H]"),
+    fig = plot_label_precision(hrs_results, label_names,
         reference_labels=(expected, ), colors=("#2980b9", ), 
-        legend_labels=("HRS (external)", ), fig=None)
+        legend_labels=("HRS (external)", ), fig=None, M=(3, 6),
+        angstroms_per_pixel=np.min(np.diff(hrs_disp)))
 
-    fig = plot_label_precision(lrs_results, ("Teff", "logg", "[Fe/H]"),
+    fig = plot_label_precision(lrs_results, label_names,
         reference_labels=(expected, ), colors=("#e67e22", ),
-        legend_labels=("LRS (external)", ), fig=fig)
+        legend_labels=("LRS (external)", ), fig=fig,
+        angstroms_per_pixel=np.min(np.diff(lrs_disp)))
 
     fig.savefig("precision-3L-external.pdf")
 
@@ -164,13 +199,15 @@ if __name__ == "__main__":
     indices = np.array(indices)
     lrs_internal_high_snr = lrs_results[indices]
 
-    fig = plot_label_precision(hrs_results, ("Teff", "logg", "[Fe/H]"),
+    fig = plot_label_precision(hrs_results, label_names,
         reference_labels=(hrs_internal_high_snr, ), colors=("#2980b9", ), 
-        legend_labels=("HRS (internal)", ), fig=None)
+        legend_labels=("HRS (internal)", ), fig=None, M=(3, 6),
+        angstroms_per_pixel=np.min(np.diff(hrs_disp)))
 
-    fig = plot_label_precision(lrs_results, ("Teff", "logg", "[Fe/H]"),
+    fig = plot_label_precision(lrs_results, label_names,
         reference_labels=(lrs_internal_high_snr, ), colors=("#e67e22", ), 
-        legend_labels=("LRS (internal)", ), fig=fig)
+        legend_labels=("LRS (internal)", ), fig=fig,
+        angstroms_per_pixel=np.min(np.diff(lrs_disp)))
 
     fig.savefig("precision-3L-internal.pdf")
 
