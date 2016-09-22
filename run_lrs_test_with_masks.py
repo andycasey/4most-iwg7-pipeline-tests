@@ -2,6 +2,7 @@
 import cPickle as pickle
 import os
 import numpy as np
+from astropy.io import fits
 from astropy.table import Table
 from glob import glob
 
@@ -12,6 +13,15 @@ label_names = ("Teff", "logg", "[Fe/H]",
     "[C/H]", "[N/H]", "[O/H]", "[Na/H]", "[Mg/H]", "[Al/H]", "[Si/H]",
     "[Ca/H]", "[Ti/H]", "[Mn/H]", "[Co/H]", "[Ni/H]", "[Ba/H]", "[Sr/H]")
 
+training_set = Table.read("trainingset_param.tab", format="ascii")
+
+training_set_dirname = "APOKASC_trainingset/LRS/"
+test_set_dirname = "testset/LRS/"
+
+output_model_path = "lrs_model_17L_censoring.pkl"
+output_path = "lrs_results_17L_censoring.fits"
+
+
 # These abundances had some NaNs in the training set:
 #('[P/H]', False)
 #('[S/H]', False)
@@ -21,19 +31,10 @@ label_names = ("Teff", "logg", "[Fe/H]",
 #('[Cr/H]', False)
 
 
-training_set = Table.read("trainingset_param.tab", format="ascii")
-
-training_set_dirname = "APOKASC_trainingset/HRS/"
-test_set_dirname = "testset/HRS/"
-
-output_path = "hrs_results_17L.fits"
-output_model_path = "hrs_model_17L.pkl"
-
-
 # Load spectra.
-training_disp_path = "hrs_training_disp.pkl"
-training_flux_path = "hrs_training_flux.pkl"
-training_ivar_path = "hrs_training_ivar.pkl"
+training_disp_path = "lrs_training_disp.pkl"
+training_flux_path = "lrs_training_flux.pkl"
+training_ivar_path = "lrs_training_ivar.pkl"
 
 if not os.path.exists(training_flux_path) \
 or not os.path.exists(training_ivar_path) \
@@ -89,18 +90,59 @@ else:
         training_ivar = pickle.load(fp)
 
 
+
+# Generate masks.
+window = 0.5 # How many Angstroms either side of the line should be used.
+censoring_masks = {}
+ges_line_list = fits.open("ges_master_v5.fits")[1].data
+
+for label_name in label_names[3:]:
+
+    mask = np.zeros(common_dispersion.size, dtype=bool)
+
+    element = label_name.lstrip("[").split("/")[0]
+
+    # Find instances of this element.
+    match = np.any(ges_line_list["NAME"] == element, axis=1)
+
+    # Get corresponding wavelengths.
+    matching_wavelengths = ges_line_list["LAMBDA"][match]
+
+    # For each wavelength, allow +/- window that line.
+    print("Found {} lines for {}".format(
+        len(matching_wavelengths), label_name))
+
+    for i, wavelength in enumerate(matching_wavelengths):
+        print(i, wavelength, label_name)
+        window_mask = ((wavelength + window) >= common_dispersion) \
+                    * (common_dispersion >= (wavelength - window))
+        mask[window_mask] = True
+
+    print("Pixels OK for label {}: {} (of {})".format(label_name, mask.sum(),
+        len(common_dispersion)))
+
+    censoring_masks[label_name] = ~mask
+
 # Construct and train a model.
 model = tc.L1RegularizedCannonModel(training_set, training_flux, training_ivar,
     dispersion=common_dispersion, threads=-1)
 
-model.s2 = 0
-model.regularization = 0
+# Vectorizer.
 model.vectorizer = tc.vectorizer.NormalizedPolynomialVectorizer(
     training_set, tc.vectorizer.polynomial.terminator(label_names, 2))
 
+# Censoring.
+model.censors = censoring_masks
+
+# Regularization.
+model.s2 = 0
+model.regularization = 0
+
+# Train and save.
 model.train()
 model._set_s2_by_hogg_heuristic()
 model.save(output_model_path, overwrite=True)
+
 
 # Test the model.
 test_files = glob("{}/star*_SNR*.txt".format(test_set_dirname))
@@ -134,7 +176,7 @@ for i, filename in enumerate(test_files):
     print(result)
     results.append(result)
 
-# Show results.
+# Collate and save results.
 results = Table(rows=results)
-results.writeto(output_path)
+results.write(output_path)
 

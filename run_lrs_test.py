@@ -8,18 +8,26 @@ from glob import glob
 import AnniesLasso as tc
 
 
-label_names = ("Teff", "logg", "[Fe/H]", )
-# Some abundances in the training set are NaNs
-#    "[C/H]", "[N/H]", "[O/H]", "[Na/H]", "[Mg/H]", "[Al/H]", "[Si/H]", "[P/H]", 
-#    "[S/H]", "[K/H]", "[Ca/H]", "[Ti/H]", "[V/H]", "[Cr/H]", "[Mn/H]", "[Co/H]",
-#    "[Ni/H]", "[Cu/H]", "[Ba/H]", "[Sr/H]")
+label_names = ("Teff", "logg", "[Fe/H]", 
+    "[C/H]", "[N/H]", "[O/H]", "[Na/H]", "[Mg/H]", "[Al/H]", "[Si/H]",
+    "[Ca/H]", "[Ti/H]", "[Mn/H]", "[Co/H]", "[Ni/H]", "[Ba/H]", "[Sr/H]")
+
 training_set = Table.read("trainingset_param.tab", format="ascii")
 
 training_set_dirname = "APOKASC_trainingset/LRS/"
 test_set_dirname = "testset/LRS/"
 
-output_path = "lrs_results.fits"
+output_path = "lrs_results_17L.fits"
+output_model_path = "lrs_model_17L.pkl"
 
+
+# These abundances had some NaNs in the training set:
+#('[P/H]', False)
+#('[S/H]', False)
+#('[K/H]', False)
+#('[Cu/H]', False)
+#('[V/H]', False)
+#('[Cr/H]', False)
 
 # Load spectra.
 training_disp_path = "lrs_training_disp.pkl"
@@ -79,6 +87,7 @@ else:
     with open(training_ivar_path, "rb") as fp:
         training_ivar = pickle.load(fp)
 
+raise a
 
 # Construct and train a model.
 model = tc.L1RegularizedCannonModel(training_set, training_flux, training_ivar,
@@ -91,6 +100,8 @@ model.vectorizer = tc.vectorizer.NormalizedPolynomialVectorizer(
 
 model.train()
 model._set_s2_by_hogg_heuristic()
+
+model.save(output_model_path, overwrite=True)
 
 # Test the model.
 test_files = glob("{}/star*_SNR*.txt".format(test_set_dirname))
